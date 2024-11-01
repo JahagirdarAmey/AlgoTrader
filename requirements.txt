@@ -12,4 +12,5 @@ seaborn
 picologging
 pytest
 pytest-bdd
-
+reportlab
+pandas
