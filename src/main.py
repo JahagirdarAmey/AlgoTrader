@@ -36,28 +36,10 @@ logger = logging.getLogger(__name__)
 
 
 def setup_backtester():
-    """Initialize the backtester with configuration"""
     return Backtester()
 
 
 def run_backtest(symbol: str, start_date: datetime, end_date: datetime):
-    """
-    Run the backtest simulation for a given symbol and time period
-
-    Parameters:
-    -----------
-    symbol : str
-        The stock symbol to backtest
-    start_date : datetime
-        Start date for the backtest
-    end_date : datetime
-        End date for the backtest
-
-    Returns:
-    --------
-    dict
-        Results of the backtest
-    """
     try:
         backtester = setup_backtester()
         results = backtester.run_backtest(symbol, start_date, end_date)

@@ -1,10 +1,6 @@
 import pandas as pd
 
-from backtester.PortfolioManager import PortfolioManager
-from backtester.SignalGenerator import SignalGenerator
-from backtester.StockDataFetcher import StockDataFetcher
-from backtester.TechnicalAnalyzer import TechnicalAnalyzer
-from backtester.TradingVisualizer import TradingVisualizer
+from src.backtester import StockDataFetcher, TechnicalAnalyzer, SignalGenerator, PortfolioManager, TradingVisualizer
 
 
 class Backtester:
