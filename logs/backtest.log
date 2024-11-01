@@ -1,0 +1,4 @@
+2024-11-01 12:20:34,003 - __main__ - INFO - Starting backtest for GOOGL from 2023-11-02 12:20:34.003881 to 2024-11-01 12:20:34.003881
+2024-11-01 12:20:35,995 - yfinance - ERROR - $GOOGL: possibly delisted; no price data found  (15m 2023-11-02 12:20:34.003881 -> 2024-11-01 12:20:34.003881) (Yahoo error = "15m data not available for startTime=1698942034 and endTime=1730443836. The requested range must be within the last 60 days.")
+2024-11-01 12:20:36,238 - __main__ - INFO - Backtest completed successfully for GOOGL
+2024-11-01 12:20:37,397 - __main__ - INFO - Visualization saved to trading_strategy_simulation.png
