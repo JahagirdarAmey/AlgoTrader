@@ -1,0 +1,15 @@
+smartapi-python
+pyotp
+pandas
+logzero
+numpy
+yfinance
+matplotlib
+scipy
+logzero
+fpdf
+seaborn
+picologging
+pytest
+pytest-bdd
+
