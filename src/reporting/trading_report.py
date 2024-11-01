@@ -116,7 +116,12 @@ class TradingReport:
 
     def generate_pdf_report(self):
         """Generate PDF report with all trading statistics and charts"""
-        report_filename = f"trading_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        report_dir = "../report"
+        if not os.path.exists(report_dir):
+            os.makedirs(report_dir)
+
+        report_filename = os.path.join(report_dir,
+                                       f"trading_report_{self.config.symbol}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf")
         doc = SimpleDocTemplate(report_filename, pagesize=letter)
         styles = getSampleStyleSheet()
         story = []
@@ -145,7 +150,6 @@ class TradingReport:
             ["Stop Loss", f"{self.config.stop_loss:.1%}"],
             ["Take Profit", f"{self.config.take_profit:.1%}"]
         ]
-
         config_table = Table(config_data)
         config_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
@@ -176,7 +180,6 @@ class TradingReport:
             ["Sharpe Ratio", f"{self.analysis.get('sharpe_ratio', 0):.2f}"],
             ["Final Portfolio Value", f"${self.final_portfolio_value:,.2f}"]
         ]
-
         metrics_table = Table(metrics_data)
         metrics_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
@@ -199,7 +202,6 @@ class TradingReport:
         chart_path = self.create_charts()
         story.append(Image(chart_path, width=500, height=300))
         story.append(Spacer(1, 20))
-
         story.append(Paragraph("Equity Curve", styles['Heading2']))
         equity_path = self.create_equity_curve()
         story.append(Image(equity_path, width=500, height=300))
