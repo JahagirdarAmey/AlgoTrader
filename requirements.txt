@@ -14,3 +14,4 @@ pytest
 pytest-bdd
 reportlab
 pandas
+psycopg2-binary
