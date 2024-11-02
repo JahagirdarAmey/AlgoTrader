@@ -13,6 +13,8 @@ pip install -r requirements.txt
 AlgoTrader/
 ├── config/
 │   └── config.py
+├── logs/
+│   └── logs.txt
 ├── src/
 │   ├── data/
 │   │   ├── __init__.py
@@ -20,8 +22,6 @@ AlgoTrader/
 │   ├── signals/
 │   │   ├── __init__.py
 │   │   ├── cpr.py
-│   │   ├── ema.py
-│   │   └── signal_generator.py
 │   ├── backtesting/
 │   │   ├── __init__.py
 │   │   └── backtest.py
@@ -31,8 +31,6 @@ AlgoTrader/
 ├── tests/
 │   ├── features/
 │   │   ├── backtest.feature
-│   │   ├── signal_generation.feature
-│   │   └── trade_execution.feature
 │   └── steps/
 │       ├── __init__.py
 │       ├── backtest_steps.py

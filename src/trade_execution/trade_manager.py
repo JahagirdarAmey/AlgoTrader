@@ -1,6 +1,8 @@
 from typing import Dict, List, Optional
 import pandas as pd
 
+from config.config import TradingConfig
+
 
 class TradeManager:
     def __init__(self, config: 'TradingConfig'):

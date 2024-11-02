@@ -1,13 +1,12 @@
-import os
 import logging
+import os
 from datetime import datetime
+
 import matplotlib.pyplot as plt
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-import pandas as pd
-import matplotlib.dates as mdates
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
 
 
 class TradingReport:
