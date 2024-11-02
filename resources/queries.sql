@@ -1,15 +1,32 @@
--- Create the trading database
+-- First, connect as a superuser (usually postgres) and drop the database if it exists
+DROP DATABASE IF EXISTS trading_analytics;
+
+-- Create fresh database
 CREATE DATABASE trading_analytics;
 
--- Connect to the database
---\c trading_analytics
+-- Connect to the new database
+\c trading_analytics
 
--- Create schemas to organize our tables
+-- Drop schemas if they exist (this will cascade and drop all contained objects)
+DROP SCHEMA IF EXISTS trading CASCADE;
+DROP SCHEMA IF EXISTS config CASCADE;
+DROP SCHEMA IF EXISTS metrics CASCADE;
+
+-- Create schemas
 CREATE SCHEMA trading;
 CREATE SCHEMA config;
 CREATE SCHEMA metrics;
 
--- Trading configuration table
+-- Create updated_at timestamp function
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Create trading configuration table
 CREATE TABLE config.trading_strategies (
     strategy_id SERIAL PRIMARY KEY,
     symbol VARCHAR(20) NOT NULL,
@@ -25,9 +42,15 @@ CREATE TABLE config.trading_strategies (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Price and indicators data
+-- Create trigger for trading_strategies
+CREATE TRIGGER update_trading_strategies_updated_at
+    BEFORE UPDATE ON config.trading_strategies
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- Create partitioned market_data table
 CREATE TABLE trading.market_data (
-    id SERIAL PRIMARY KEY,
+    id SERIAL,
     strategy_id INTEGER REFERENCES config.trading_strategies(strategy_id),
     timestamp TIMESTAMP NOT NULL,
     symbol VARCHAR(20) NOT NULL,
@@ -37,9 +60,19 @@ CREATE TABLE trading.market_data (
     ema_long DECIMAL(15,2),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (symbol, timestamp)
-);
+) PARTITION BY RANGE (timestamp);
 
--- Trade signals and executions
+-- Create initial partitions
+CREATE TABLE trading.market_data_y2024m01 PARTITION OF trading.market_data
+    FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');
+
+CREATE TABLE trading.market_data_y2024m02 PARTITION OF trading.market_data
+    FOR VALUES FROM ('2024-02-01') TO ('2024-03-01');
+
+CREATE TABLE trading.market_data_y2024m03 PARTITION OF trading.market_data
+    FOR VALUES FROM ('2024-03-01') TO ('2024-04-01');
+
+-- Create trades table
 CREATE TABLE trading.trades (
     trade_id SERIAL PRIMARY KEY,
     strategy_id INTEGER REFERENCES config.trading_strategies(strategy_id),
@@ -58,7 +91,13 @@ CREATE TABLE trading.trades (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Portfolio performance tracking
+-- Create trigger for trades
+CREATE TRIGGER update_trades_updated_at
+    BEFORE UPDATE ON trading.trades
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- Create portfolio metrics table
 CREATE TABLE metrics.portfolio_metrics (
     id SERIAL PRIMARY KEY,
     strategy_id INTEGER REFERENCES config.trading_strategies(strategy_id),
@@ -69,7 +108,7 @@ CREATE TABLE metrics.portfolio_metrics (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Daily performance metrics
+-- Create daily performance table
 CREATE TABLE metrics.daily_performance (
     id SERIAL PRIMARY KEY,
     strategy_id INTEGER REFERENCES config.trading_strategies(strategy_id),
@@ -86,32 +125,75 @@ CREATE TABLE metrics.daily_performance (
     UNIQUE (strategy_id, date)
 );
 
--- Create indexes for better query performance
+-- Create auto-partitioning function
+CREATE OR REPLACE FUNCTION trading.create_market_data_partition()
+RETURNS TRIGGER AS $$
+DECLARE
+    partition_timestamp timestamp;
+    partition_name text;
+    start_date timestamp;
+    end_date timestamp;
+BEGIN
+    partition_timestamp := date_trunc('month', NEW.timestamp);
+    partition_name := 'market_data_y' ||
+                     to_char(partition_timestamp, 'YYYY') ||
+                     'm' ||
+                     to_char(partition_timestamp, 'MM');
+
+    start_date := date_trunc('month', partition_timestamp);
+    end_date := start_date + interval '1 month';
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = partition_name
+        AND n.nspname = 'trading'
+    ) THEN
+        EXECUTE format(
+            'CREATE TABLE trading.%I PARTITION OF trading.market_data
+            FOR VALUES FROM (%L) TO (%L)',
+            partition_name,
+            start_date,
+            end_date
+        );
+
+        RAISE NOTICE 'Created new partition: trading.%', partition_name;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create auto-partitioning trigger
+CREATE TRIGGER create_market_data_partition_trigger
+    BEFORE INSERT ON trading.market_data
+    FOR EACH ROW
+    EXECUTE FUNCTION trading.create_market_data_partition();
+
+-- Create indexes
 CREATE INDEX idx_market_data_symbol_timestamp ON trading.market_data(symbol, timestamp);
 CREATE INDEX idx_trades_symbol_dates ON trading.trades(symbol, entry_date, exit_date);
 CREATE INDEX idx_portfolio_metrics_strategy_timestamp ON metrics.portfolio_metrics(strategy_id, timestamp);
 CREATE INDEX idx_daily_performance_strategy_date ON metrics.daily_performance(strategy_id, date);
 
--- Create time-based partitioning for market_data table
---CREATE TABLE trading.market_data_y2024m01 PARTITION OF trading.market_data
---    FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');
-
--- Create a function to update updated_at timestamp
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
+-- Create a trading application user (replace password with your secure password)
+DO $$
 BEGIN
-    NEW.updated_at = CURRENT_TIMESTAMP;
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
+    IF NOT EXISTS (SELECT FROM pg_user WHERE usename = 'trading_user') THEN
+        CREATE USER trading_user WITH PASSWORD 'your_secure_password';
+    END IF;
+END
+$$;
 
--- Create triggers for updated_at columns
-CREATE TRIGGER update_trading_strategies_updated_at
-    BEFORE UPDATE ON config.trading_strategies
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
+-- Grant privileges to the new user
+GRANT USAGE ON SCHEMA trading, config, metrics TO trading_user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA trading TO trading_user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA config TO trading_user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA metrics TO trading_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA trading TO trading_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA config TO trading_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA metrics TO trading_user;
 
-CREATE TRIGGER update_trades_updated_at
-    BEFORE UPDATE ON trading.trades
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
+-- Allow the user to create new partitions
+GRANT CREATE ON SCHEMA trading TO trading_user;
