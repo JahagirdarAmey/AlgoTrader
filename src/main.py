@@ -1,5 +1,6 @@
 from config.config import TradingConfig
 from src.backtesting.backtest import Backtest
+from src.data.trading_data_persistence import TradingDataPersistence
 from src.reporting.trading_report import TradingReport
 
 
@@ -18,12 +19,26 @@ def main():
         'pivot_threshold': 0.001
     }
 
+    # Database configuration
+    db_config = {
+        'dbname': 'trading_analytics',
+        'user': 'trading_user',
+        'password': 'your_secure_password',
+        'host': 'localhost',
+        'port': '5432'
+    }
+
     config = TradingConfig.from_dict(config_dict)
 
     # Run backtest
     backtest = Backtest(config)
     results = backtest.run()
     analysis = backtest.analyze_results()
+
+    # Persist the data
+    with TradingDataPersistence(db_config) as db:
+        strategy_id = db.persist_all_data(config, results, analysis)
+        print(f"Data persisted successfully with strategy_id: {strategy_id}")
 
     # Generate report
     report = TradingReport(config, results, analysis)

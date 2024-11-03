@@ -1,9 +1,9 @@
 import pandas as pd
 
 from config.config import TradingConfig
-from cpr import CPRCalculator, CPRLevels
-from ema import EMACalculator
-from pivot_ranges import PivotCalculator, PivotLevels
+from .cpr import CPRCalculator, CPRLevels
+from .ema import EMACalculator
+from .pivot_ranges import PivotCalculator, PivotLevels
 from ..data.data_loader import DataLoader
 
 

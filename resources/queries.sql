@@ -72,6 +72,92 @@ CREATE TABLE trading.market_data_y2024m02 PARTITION OF trading.market_data
 CREATE TABLE trading.market_data_y2024m03 PARTITION OF trading.market_data
     FOR VALUES FROM ('2024-03-01') TO ('2024-04-01');
 
+    -- First, create partitions for 2023 data
+CREATE TABLE trading.market_data_y2023m01 PARTITION OF trading.market_data
+    FOR VALUES FROM ('2023-01-01') TO ('2023-02-01');
+
+CREATE TABLE trading.market_data_y2023m02 PARTITION OF trading.market_data
+    FOR VALUES FROM ('2023-02-01') TO ('2023-03-01');
+
+CREATE TABLE trading.market_data_y2023m03 PARTITION OF trading.market_data
+    FOR VALUES FROM ('2023-03-01') TO ('2023-04-01');
+
+CREATE TABLE trading.market_data_y2023m04 PARTITION OF trading.market_data
+    FOR VALUES FROM ('2023-04-01') TO ('2023-05-01');
+
+CREATE TABLE trading.market_data_y2023m05 PARTITION OF trading.market_data
+    FOR VALUES FROM ('2023-05-01') TO ('2023-06-01');
+
+CREATE TABLE trading.market_data_y2023m06 PARTITION OF trading.market_data
+    FOR VALUES FROM ('2023-06-01') TO ('2023-07-01');
+
+CREATE TABLE trading.market_data_y2023m07 PARTITION OF trading.market_data
+    FOR VALUES FROM ('2023-07-01') TO ('2023-08-01');
+
+CREATE TABLE trading.market_data_y2023m08 PARTITION OF trading.market_data
+    FOR VALUES FROM ('2023-08-01') TO ('2023-09-01');
+
+CREATE TABLE trading.market_data_y2023m09 PARTITION OF trading.market_data
+    FOR VALUES FROM ('2023-09-01') TO ('2023-10-01');
+
+CREATE TABLE trading.market_data_y2023m10 PARTITION OF trading.market_data
+    FOR VALUES FROM ('2023-10-01') TO ('2023-11-01');
+
+CREATE TABLE trading.market_data_y2023m11 PARTITION OF trading.market_data
+    FOR VALUES FROM ('2023-11-01') TO ('2023-12-01');
+
+CREATE TABLE trading.market_data_y2023m12 PARTITION OF trading.market_data
+    FOR VALUES FROM ('2023-12-01') TO ('2024-01-01');
+
+-- Modify the auto-partitioning function to be more robust
+CREATE OR REPLACE FUNCTION trading.create_market_data_partition()
+RETURNS TRIGGER AS $$
+DECLARE
+    partition_timestamp timestamp;
+    partition_name text;
+    start_date timestamp;
+    end_date timestamp;
+BEGIN
+    -- Round down to the start of the month
+    partition_timestamp := date_trunc('month', NEW.timestamp);
+
+    -- Generate partition name
+    partition_name := 'market_data_y' ||
+                     to_char(partition_timestamp, 'YYYY') ||
+                     'm' ||
+                     lpad(to_char(partition_timestamp, 'MM'), 2, '0');
+
+    start_date := partition_timestamp;
+    end_date := start_date + interval '1 month';
+
+    -- Check if partition exists
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = partition_name
+        AND n.nspname = 'trading'
+    ) THEN
+        BEGIN
+            EXECUTE format(
+                'CREATE TABLE trading.%I PARTITION OF trading.market_data
+                FOR VALUES FROM (%L) TO (%L)',
+                partition_name,
+                start_date,
+                end_date
+            );
+            RAISE NOTICE 'Created new partition: trading.%', partition_name;
+        EXCEPTION WHEN OTHERS THEN
+            RAISE NOTICE 'Error creating partition: %', SQLERRM;
+            -- Re-raise the error
+            RAISE;
+        END;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Create trades table
 CREATE TABLE trading.trades (
     trade_id SERIAL PRIMARY KEY,
