@@ -88,7 +88,7 @@ class TradingDataPersistence:
 
     def save_market_data(self, strategy_id: int, results: Dict, config: Dict):
         """
-        Save market data including prices and indicators.
+        Save market data including prices and indicators using upsert logic.
 
         Args:
             strategy_id: The strategy_id from trading_strategies table
@@ -104,11 +104,20 @@ class TradingDataPersistence:
             )
 
             with self.conn.cursor() as cur:
+                # Using ON CONFLICT DO UPDATE for upsert operation
                 query = """
-                   INSERT INTO trading.market_data 
-                   (strategy_id, timestamp, symbol, price, volume, ema_short, ema_long)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s)
-                   """
+                    INSERT INTO trading.market_data 
+                    (strategy_id, timestamp, symbol, price, volume, ema_short, ema_long)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (symbol, timestamp)
+                    DO UPDATE SET
+                        strategy_id = EXCLUDED.strategy_id,
+                        price = EXCLUDED.price,
+                        volume = EXCLUDED.volume,
+                        ema_short = EXCLUDED.ema_short,
+                        ema_long = EXCLUDED.ema_long;
+                    """
+
                 data = [
                     (strategy_id, date, config.symbol, price, volume, ema_s, ema_l)
                     for date, price, volume, ema_s, ema_l in zip(
@@ -119,86 +128,105 @@ class TradingDataPersistence:
                         results.get('ema_long', [None] * len(results['dates']))
                     )
                 ]
-                execute_batch(cur, query, data, page_size=1000)
-                self.conn.commit()
-                self.logger.info(f"Saved {len(data)} market data records")
+
+                # Process in smaller batches to handle large datasets more efficiently
+                batch_size = 1000
+                for i in range(0, len(data), batch_size):
+                    batch = data[i:i + batch_size]
+                    execute_batch(cur, query, batch, page_size=batch_size)
+                    self.conn.commit()
+                    self.logger.info(f"Processed batch of {len(batch)} market data records")
+
+                self.logger.info(f"Successfully saved/updated {len(data)} market data records")
+
         except Exception as e:
             self.conn.rollback()
             self.logger.error(f"Error saving market data: {str(e)}")
             raise
 
-
     def save_trading_strategy(self, config) -> int:
         """
         Save trading strategy configuration and return the strategy_id.
+        If symbol already exists, update the existing strategy.
 
         Args:
             config: TradingConfig object containing strategy parameters
 
         Returns:
-            int: The strategy_id of the inserted record
+            int: The strategy_id of the inserted/updated record
         """
         try:
             with self.conn.cursor() as cur:
-                query = """
-                INSERT INTO config.trading_strategies 
-                (symbol, start_date, end_date, initial_capital, ema_short, 
-                ema_long, volume_threshold, stop_loss, take_profit)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING strategy_id;
-                """
-                cur.execute(query, (
-                    config.symbol,
-                    config.start_date,
-                    config.end_date,
-                    config.initial_capital,
-                    config.ema_short,
-                    config.ema_long,
-                    config.volume_threshold,
-                    config.stop_loss,
-                    config.take_profit
-                ))
-                strategy_id = cur.fetchone()[0]
+                # First try to get existing strategy_id
+                cur.execute("""
+                    SELECT strategy_id FROM config.trading_strategies 
+                    WHERE symbol = %s
+                    ORDER BY created_at DESC 
+                    LIMIT 1
+                """, (config.symbol,))
+
+                result = cur.fetchone()
+
+                if result:
+                    # Update existing strategy
+                    strategy_id = result[0]
+                    query = """
+                    UPDATE config.trading_strategies 
+                    SET start_date = %s,
+                        end_date = %s,
+                        initial_capital = %s,
+                        ema_short = %s,
+                        ema_long = %s,
+                        volume_threshold = %s,
+                        stop_loss = %s,
+                        take_profit = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE strategy_id = %s
+                    """
+                    cur.execute(query, (
+                        config.start_date,
+                        config.end_date,
+                        config.initial_capital,
+                        config.ema_short,
+                        config.ema_long,
+                        config.volume_threshold,
+                        config.stop_loss,
+                        config.take_profit,
+                        strategy_id
+                    ))
+                    self.logger.info(f"Updated existing trading strategy with ID: {strategy_id}")
+                else:
+                    # Insert new strategy
+                    query = """
+                    INSERT INTO config.trading_strategies 
+                    (symbol, start_date, end_date, initial_capital, ema_short, 
+                    ema_long, volume_threshold, stop_loss, take_profit)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING strategy_id;
+                    """
+                    cur.execute(query, (
+                        config.symbol,
+                        config.start_date,
+                        config.end_date,
+                        config.initial_capital,
+                        config.ema_short,
+                        config.ema_long,
+                        config.volume_threshold,
+                        config.stop_loss,
+                        config.take_profit
+                    ))
+                    strategy_id = cur.fetchone()[0]
+                    self.logger.info(f"Created new trading strategy with ID: {strategy_id}")
+
+                # Clean up old data for this symbol
+                self._cleanup_old_data(strategy_id, config.symbol)
+
                 self.conn.commit()
-                self.logger.info(f"Saved trading strategy with ID: {strategy_id}")
                 return strategy_id
+
         except Exception as e:
             self.conn.rollback()
             self.logger.error(f"Error saving trading strategy: {str(e)}")
-            raise
-
-    def save_market_data(self, strategy_id: int, results: Dict, config: Dict):
-        """
-        Save market data including prices and indicators.
-
-        Args:
-            :param strategy_id: The strategy_id from trading_strategies table
-            :param results: Dictionary containing market data
-            :param config:
-        """
-        try:
-            with self.conn.cursor() as cur:
-                query = """
-                INSERT INTO trading.market_data 
-                (strategy_id, timestamp, symbol, price, volume, ema_short, ema_long)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """
-                data = [
-                    (strategy_id, date, config.symbol, price, volume, ema_s, ema_l)
-                    for date, price, volume, ema_s, ema_l in zip(
-                        results['dates'],
-                        results['prices'],
-                        results.get('volumes', [0] * len(results['dates'])),
-                        results.get('ema_short', [None] * len(results['dates'])),
-                        results.get('ema_long', [None] * len(results['dates']))
-                    )
-                ]
-                execute_batch(cur, query, data, page_size=1000)
-                self.conn.commit()
-                self.logger.info(f"Saved {len(data)} market data records")
-        except Exception as e:
-            self.conn.rollback()
-            self.logger.error(f"Error saving market data: {str(e)}")
             raise
 
     def save_trades(self, strategy_id: int, trades: List[Dict]):
@@ -299,6 +327,52 @@ class TradingDataPersistence:
         except Exception as e:
             self.conn.rollback()
             self.logger.error(f"Error saving daily performance: {str(e)}")
+            raise
+
+    def _cleanup_old_data(self, current_strategy_id: int, symbol: str):
+        """
+        Clean up old data for the given symbol, keeping data for the current strategy.
+
+        Args:
+            current_strategy_id: The current strategy_id to keep
+            symbol: The trading symbol
+        """
+        try:
+            with self.conn.cursor() as cur:
+                # Instead of deleting market data, update it to the current strategy_id
+                cur.execute("""
+                    UPDATE trading.market_data 
+                    SET strategy_id = %s
+                    WHERE symbol = %s AND strategy_id != %s
+                """, (current_strategy_id, symbol, current_strategy_id))
+
+                # Delete other related data for old strategies
+                tables = [
+                    'trading.trades',
+                    'metrics.portfolio_metrics',
+                    'metrics.daily_performance'
+                ]
+
+                for table in tables:
+                    cur.execute(f"""
+                        DELETE FROM {table}
+                        WHERE strategy_id IN (
+                            SELECT strategy_id 
+                            FROM config.trading_strategies 
+                            WHERE symbol = %s AND strategy_id != %s
+                        )
+                    """, (symbol, current_strategy_id))
+
+                # Delete old strategies
+                cur.execute("""
+                    DELETE FROM config.trading_strategies 
+                    WHERE symbol = %s AND strategy_id != %s
+                """, (symbol, current_strategy_id))
+
+                self.logger.info(f"Cleaned up old data for symbol: {symbol}")
+
+        except Exception as e:
+            self.logger.error(f"Error cleaning up old data: {str(e)}")
             raise
 
     def persist_all_data(self, config, results, analysis) -> int:
