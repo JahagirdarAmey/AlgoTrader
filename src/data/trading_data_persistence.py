@@ -375,6 +375,58 @@ class TradingDataPersistence:
             self.logger.error(f"Error cleaning up old data: {str(e)}")
             raise
 
+    def diagnose_data_saving(self, config, results, analysis):
+        """
+        Diagnose issues with data saving process by checking data structure and contents.
+
+        Args:
+            config: Trading configuration object
+            results: Trading results dictionary
+            analysis: Trading analysis dictionary
+        """
+        self.logger.info("Starting data saving diagnosis...")
+
+        # Check trades data
+        if 'trades' not in results:
+            self.logger.error("No trades data found in results dictionary")
+        else:
+            self.logger.info(f"Found {len(results['trades'])} trades")
+            # Log sample trade for structure verification
+            if results['trades']:
+                self.logger.info(f"Sample trade structure: {results['trades'][0]}")
+
+        # Check portfolio metrics data
+        if 'equity_curve' not in results:
+            self.logger.error("No equity curve data found in results")
+        else:
+            self.logger.info(f"Found equity curve data with {len(results['equity_curve'])} points")
+
+        # Check daily performance data
+        if 'daily_performance' not in analysis:
+            self.logger.error("No daily performance data found in analysis")
+        else:
+            self.logger.info(f"Found daily performance data with {len(analysis['daily_performance'])} days")
+            # Log sample daily performance for structure verification
+            if analysis['daily_performance']:
+                sample_date = list(analysis['daily_performance'].keys())[0]
+                self.logger.info(f"Sample daily performance structure: {analysis['daily_performance'][sample_date]}")
+
+        # Verify data structure matches database schema
+        try:
+            with self.conn.cursor() as cur:
+                # Check if tables exist
+                for table in ['trading.trades', 'metrics.portfolio_metrics', 'metrics.daily_performance']:
+                    cur.execute(
+                        f"SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = split_part(%s, '.', 1) AND table_name = split_part(%s, '.', 2))",
+                        (table, table))
+                    exists = cur.fetchone()[0]
+                    if not exists:
+                        self.logger.error(f"Table {table} does not exist in database")
+                    else:
+                        self.logger.info(f"Table {table} exists in database")
+        except Exception as e:
+            self.logger.error(f"Error checking database schema: {str(e)}")
+
     def persist_all_data(self, config, results, analysis) -> int:
         """
         Persist all trading data in a single transaction.
@@ -388,30 +440,46 @@ class TradingDataPersistence:
             int: The strategy_id of the saved data
         """
         try:
+            # Run diagnostics first
+            self.diagnose_data_saving(config, results, analysis)
+
             strategy_id = self.save_trading_strategy(config)
             self.save_market_data(strategy_id, results, config)
 
             if 'trades' in results:
-                self.save_trades(strategy_id, results['trades'])
+                if not results['trades']:
+                    self.logger.warning("Trades list is empty")
+                else:
+                    self.save_trades(strategy_id, results['trades'])
+            else:
+                self.logger.warning("No trades data found in results")
 
             if 'equity_curve' in results:
-                self.save_portfolio_metrics(strategy_id, {
+                metrics_data = {
                     'dates': results['dates'],
                     'equity_curve': results['equity_curve'],
                     'drawdown': analysis.get('drawdown_series', []),
                     'drawdown_pct': analysis.get('drawdown_pct_series', [])
-                })
+                }
+                self.save_portfolio_metrics(strategy_id, metrics_data)
+            else:
+                self.logger.warning("No equity curve data found in results")
 
             if 'daily_performance' in analysis:
-                self.save_daily_performance(strategy_id, analysis['daily_performance'])
+                if not analysis['daily_performance']:
+                    self.logger.warning("Daily performance dictionary is empty")
+                else:
+                    self.save_daily_performance(strategy_id, analysis['daily_performance'])
+            else:
+                self.logger.warning("No daily performance data found in analysis")
 
-            self.logger.info(f"Successfully persisted all trading data for strategy {strategy_id}")
+            self.logger.info(f"Successfully persisted all available trading data for strategy {strategy_id}")
             return strategy_id
 
         except Exception as e:
             self.logger.error(f"Error persisting trading data: {str(e)}")
             raise
-
+0
     def close(self):
         """Close database connection"""
         if self.conn:
